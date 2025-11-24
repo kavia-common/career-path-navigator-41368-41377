@@ -4,10 +4,11 @@
 This script is safe to run multiple times. It will:
 - Load JSON datasets from the backend path (default):
   ../career-path-navigator-41368-41378/career_navigator_backend/data
-  or override with BACKEND_DATA_DIR env var.
+  or override with BACKEND_DATA_DIR env var or --data-dir CLI flag.
 - Upsert into tables with idempotent logic using natural keys:
   roles, competencies, role_competencies, role_adjacency, resources.
 - Print counts per table and write a summary file (ingestion_summary.txt).
+- Optionally create compatibility views so visualizers expecting different names can work.
 
 Notes:
 - Assumes schema.sql applied (run init_db.py first).
@@ -20,6 +21,7 @@ PySecure-4-Minimal-Standard:
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sqlite3
@@ -57,9 +59,10 @@ def _safe_load_json(path: str) -> Any:
         print(f"Warning: failed to load {path}: {e}")
         return None
 
-def _ensure_conn() -> sqlite3.Connection:
+def _ensure_conn(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Create a sqlite3 connection with foreign keys enabled."""
-    conn = sqlite3.connect(DB_NAME)
+    db_file = db_path or DB_NAME
+    conn = sqlite3.connect(db_file)
     conn.row_factory = sqlite3.Row
     with conn:
         conn.execute("PRAGMA foreign_keys = ON")
@@ -353,20 +356,62 @@ def _write_summary(counts: Dict[str, int], path: str = "ingestion_summary.txt") 
     except Exception as e:
         print(f"Warning: could not write summary file: {e}")
 
+def _create_compatibility_views(conn: sqlite3.Connection) -> None:
+    """Create views that mirror expected table names if any visualizer/tool expects them.
+
+    For this project, the primary tables already match expected names:
+    roles, competencies, role_competencies, role_adjacency, resources.
+    This function is a no-op now but keeps place for future mapping (e.g., if a tool expects 'role_adjacencies').
+    """
+    with conn:
+        # Example (commented for now):
+        # conn.execute("CREATE VIEW IF NOT EXISTS role_adjacencies AS SELECT * FROM role_adjacency")
+        pass
+
+def _parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for explicit configuration."""
+    parser = argparse.ArgumentParser(description="Ingest backend JSON datasets into SQLite.")
+    parser.add_argument(
+        "--data-dir",
+        help="Path to backend data directory containing JSON datasets.",
+        default=None,
+    )
+    parser.add_argument(
+        "--db-path",
+        help="Path to SQLite DB file (defaults to myapp.db in current dir).",
+        default=None,
+    )
+    parser.add_argument(
+        "--create-views",
+        help="Create compatibility views for expected table names.",
+        action="store_true",
+    )
+    return parser.parse_args()
+
 # PUBLIC_INTERFACE
 def main() -> None:
     """Run JSON ingestion into SQLite with verification output.
 
     Environment:
     - BACKEND_DATA_DIR: optional override for backend data directory
-    """
-    explicit_backend_dir = os.environ.get("BACKEND_DATA_DIR")
 
-    # Prefer explicit path, else use the request's absolute default if present, else fall back to sibling path.
+    CLI:
+    - --data-dir: explicit dataset directory
+    - --db-path: explicit sqlite database path
+    - --create-views: create compatibility views (no-op by default)
+    """
+    args = _parse_args()
+
+    explicit_backend_dir = args.data_dir or os.environ.get("BACKEND_DATA_DIR")
+
+    # Prefer explicit path, else use the request-provided absolute default if present, else fall back to sibling path.
     request_default = "/home/kavia/workspace/code-generation/career-path-navigator-41368-41378/career_navigator_backend/data"
     data_dir = explicit_backend_dir or (request_default if os.path.isdir(request_default) else DEFAULT_DATA_DIR)
 
+    db_path = args.db_path or DB_NAME
+
     print(f"Using data directory: {data_dir}")
+    print(f"Using SQLite DB path: {os.path.abspath(db_path)}")
     if not os.path.isdir(data_dir):
         print("No data directory found. Skipping ingestion.")
         return
@@ -380,7 +425,11 @@ def main() -> None:
     adj_vs_ca_file = os.path.join(data_dir, "adjacency_vs_ca.json")      # optional
     adj_matrix_file = os.path.join(data_dir, "adjacency_matrix.json")    # optional
 
-    with closing(_ensure_conn()) as conn:
+    with closing(_ensure_conn(db_path)) as conn:
+        # Create optional compatibility views
+        if args.create_views:
+            _create_compatibility_views(conn)
+
         # Load datasets
         roles = _safe_load_json(roles_file)
         comp_defs = _safe_load_json(comp_defs_file)
@@ -428,6 +477,9 @@ def main() -> None:
         _write_summary(counts)
 
     print("\nIngestion complete. You can verify in the SQLite visualizer.")
+    print("Tip: To run explicitly as requested:")
+    print("  python3 ingest_json.py --db-path /home/kavia/workspace/code-generation/career-path-navigator-41368-41377/career_navigator_database/myapp.db \\")
+    print("      --data-dir /home/kavia/workspace/code-generation/career-path-navigator-41368-41378/career_navigator_backend/data --create-views")
 
 if __name__ == "__main__":
     main()
