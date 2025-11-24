@@ -70,7 +70,7 @@ const env = loadEnvFiles();
 const dbConfigBuilders = {
   postgres: (env) => env.POSTGRES_URL ? {
     host: 'localhost',
-    port: env.POSTGRES_PORT || 5432,
+    port: env.POSTGRES_PORT || 3005,
     user: env.POSTGRES_USER || 'postgres',
     password: env.POSTGRES_PASSWORD || '',
     database: env.POSTGRES_DB || 'postgres'
@@ -78,7 +78,7 @@ const dbConfigBuilders = {
   
   mysql: (env) => env.MYSQL_URL ? {
     host: 'localhost',
-    port: env.MYSQL_PORT || 3306,
+    port: env.MYSQL_PORT || 3005,
     user: env.MYSQL_USER || 'root',
     password: env.MYSQL_PASSWORD || '',
     database: env.MYSQL_DB || 'mysql'
